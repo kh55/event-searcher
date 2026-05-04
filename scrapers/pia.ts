@@ -74,12 +74,10 @@ function piaNormalizeStatus(raw: string) {
   return normalizeTicketStatus(t);
 }
 
-export const piaAdapter: SourceAdapter & {
-  search: (params: SearchParams, opts?: FetchHtmlOptions) => Promise<RawEvent[]>;
-} = {
+export const piaAdapter: SourceAdapter = {
   source: 'pia',
 
-  async search(params, opts = {}) {
+  async search(params: SearchParams, opts: FetchHtmlOptions = {}) {
     const url = buildUrl(params);
     const html = await fetchHtml(url, opts);
     const $ = cheerio.load(html);

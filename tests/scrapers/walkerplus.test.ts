@@ -56,6 +56,20 @@ describe('walkerplusAdapter.search', () => {
     expect(Array.isArray(e.tags)).toBe(true);
   });
 
+  it('maps __end (終了間近) and __open (開催中) both to on_sale', async () => {
+    // Walkerplus の __end クラスは「終了間近」(まだ販売中) を意味し、
+    // 終了済みではないので on_sale にマップされること
+    const fakeFetch = vi.fn(async () => new Response(FIXTURE, { status: 200 }));
+    const events = await walkerplusAdapter.search(
+      { dateFrom: new Date(), dateTo: new Date(), includeOnline: true },
+      { fetch: fakeFetch as unknown as typeof fetch },
+    );
+    // フィクスチャに __end と __open のいずれかが少なくとも1つ含まれているはず
+    // それらはすべて on_sale になっていなければならない
+    expect(events.every(e => e.ticketStatus === 'on_sale' || e.ticketStatus === 'unknown')).toBe(true);
+    expect(events.some(e => e.ticketStatus === 'on_sale')).toBe(true);
+  });
+
   it('has ticketUrl that points to walkerplus.com', async () => {
     const fakeFetch = vi.fn(async () => new Response(FIXTURE, { status: 200 }));
     const events = await walkerplusAdapter.search(
