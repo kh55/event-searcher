@@ -27,7 +27,10 @@ const TTL_HOURS = 6;
 export async function getCachedEventIds(
   client: SupabaseClient,
   key: string,
-): Promise<bigint[] | null> {
+): Promise<number[] | null> {
+  // 注: Postgres の BIGINT[] は Supabase JS クライアント経由では number[] として返る
+  // (JSON パース時に bigint プリミティブにはならない)。実イベント ID は
+  // Number.MAX_SAFE_INTEGER の範囲に収まる前提。
   const { data, error } = await client
     .from('search_cache')
     .select('event_ids,expires_at')
@@ -42,7 +45,7 @@ export async function getCachedEventIds(
 export async function setCachedEventIds(
   client: SupabaseClient,
   key: string,
-  eventIds: bigint[] | number[],
+  eventIds: number[],
 ): Promise<void> {
   const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000).toISOString();
   const { error } = await client
