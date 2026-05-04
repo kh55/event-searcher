@@ -1,4 +1,5 @@
 import type { TicketStatus } from '@/lib/ticket-status';
+import type { FetchHtmlOptions } from './http';
 
 export interface SearchParams {
   keyword?: string;
@@ -25,5 +26,5 @@ export interface RawEvent {
 
 export interface SourceAdapter {
   readonly source: string;
-  search(params: SearchParams): Promise<RawEvent[]>;
+  search(params: SearchParams, opts?: FetchHtmlOptions): Promise<RawEvent[]>;
 }

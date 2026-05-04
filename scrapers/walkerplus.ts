@@ -60,19 +60,19 @@ export function parseWalkerplusDate(text: string): Date | null {
 /**
  * ウォーカープラス固有のイベントステータステキストを正規化する。
  * 期間テキストの <span> クラス名からステータスを読み取る。
+ *
+ * 注意: ウォーカープラスでは __end は「終了間近」(まだ販売中) を表し、
+ * 終了済みを意味しない。__open は「開催中」。どちらも on_sale。
  */
 function wpNormalizeStatus(openClass: string): ReturnType<typeof normalizeTicketStatus> {
-  if (openClass.includes('__end')) return 'ended';
-  if (openClass.includes('__open')) return 'on_sale';
+  if (openClass.includes('__open') || openClass.includes('__end')) return 'on_sale';
   return normalizeTicketStatus('');
 }
 
-export const walkerplusAdapter: SourceAdapter & {
-  search: (params: SearchParams, opts?: FetchHtmlOptions) => Promise<RawEvent[]>;
-} = {
+export const walkerplusAdapter: SourceAdapter = {
   source: 'walkerplus',
 
-  async search(params, opts = {}) {
+  async search(params: SearchParams, opts: FetchHtmlOptions = {}) {
     const url = buildUrl();
     const html = await fetchHtml(url, opts);
     const $ = cheerio.load(html);
