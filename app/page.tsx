@@ -62,7 +62,10 @@ export default function HomePage() {
 
   return (
     <main className="max-w-3xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-4">event-searcher</h1>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold">event-searcher</h1>
+        <a href="/settings" className="text-sm text-blue-600 underline">設定</a>
+      </div>
       <div className="flex gap-2 mb-4">
         <input
           value={keyword}
