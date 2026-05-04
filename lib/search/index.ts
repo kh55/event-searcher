@@ -86,15 +86,14 @@ export async function searchEvents(
 
   const events = await runDbSearch(client, params);
 
-  // sources_succeeded/failed が未設定(batch/cache 戦略)の場合はメタ情報として全アダプタ名を返す
+  // sources_succeeded/failed は on_demand 戦略でのみ意味を持つ。
+  // batch/cache 戦略時は空配列を返す(アダプタを実行していないため)
   return {
     events,
     meta: {
       fetched_strategy: strategy,
       fetched_at: new Date().toISOString(),
-      sources_succeeded: sourcesSucceeded.length > 0
-        ? sourcesSucceeded
-        : ADAPTERS.map(a => a.source),
+      sources_succeeded: sourcesSucceeded,
       sources_failed: sourcesFailed,
     },
   };
@@ -205,11 +204,11 @@ async function runDbSearch(
       const areasQuoted = p.areas.map(a => `"${a}"`).join(',');
       query = query.or(`area.in.(${areasQuoted}),is_online.eq.true`);
     } else {
-      query = query.in('area', p.areas);
+      // areas 指定 + includeOnline=false: area一致 かつ is_online=false でないと
+      // 「東京都会場で配信併催」のようなオンラインフラグ付きイベントが混入する
+      query = query.in('area', p.areas).eq('is_online', false);
     }
   } else if (!p.includeOnline) {
-    // areas 未指定かつオンライン除外の場合のみ is_online=false を追加
-    // (areas 指定 + includeOnline=false は上の in() で area フィルタが機能する)
     query = query.eq('is_online', false);
   }
 
