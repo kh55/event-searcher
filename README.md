@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# event-searcher
 
-## Getting Started
+声優・アニメ作品名等のキーワードで、ライブ・コンサート・トーク・展示など全国のイベントを横断検索できる Web サービス(MVP)。
 
-First, run the development server:
+## 機能
+
+- キーワード(声優名・作品名・会場名) + 期間 + エリアで検索
+- 「今週末/来週末/今月」のプリセット
+- 販売中のみ表示 / 配信を含めるかのトグル
+- 推しキーワードの保存(バッチで継続取得)
+
+## セットアップ
+
+```bash
+cp .env.local.example .env.local  # 値を埋める
+npm install
+```
+
+### DB マイグレーション
+
+Supabase ダッシュボードの SQL Editor に `db/migrations/*.sql` を順番に流す。
+
+### 開発サーバ
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### バッチ実行(ローカル)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run batch-fetch
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### テスト
 
-## Learn More
+```bash
+npm test
+```
 
-To learn more about Next.js, take a look at the following resources:
+## 構成
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- 設計仕様: `docs/superpowers/specs/2026-05-04-event-searcher-design.md`
+- 実装計画: `docs/superpowers/plans/2026-05-04-event-searcher.md`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## デプロイ
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- フロント/API: Vercel(`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`NEXT_PUBLIC_*` を Secrets に)
+- バッチ: GitHub Actions(同じ Secrets を Repo Secrets に)
+- DB: Supabase クラウド(無料枠)
