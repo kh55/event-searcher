@@ -137,4 +137,22 @@ describe('walkerplusAdapter.search', () => {
     const withPref = events.filter(e => e.prefecture);
     expect(withPref.length).toBeGreaterThan(0);
   });
+
+  it('extracts description from JSON-LD for events with matching image id', async () => {
+    const fakeFetch = vi.fn(async () => new Response(FIXTURE, { status: 200 }));
+    const events = await walkerplusAdapter.search(
+      { dateFrom: new Date(), dateTo: new Date(), includeOnline: true },
+      { fetch: fakeFetch as unknown as typeof fetch },
+    );
+
+    // フィクスチャの JSON-LD には複数の Event エントリがあり、
+    // 大半のリスト項目に対して description が引き当てられるはず
+    const withDesc = events.filter(e => e.description && e.description.length > 0);
+    expect(withDesc.length).toBeGreaterThan(0);
+
+    // ドラえもんイベント (image=583568_1.jpg) の description を具体的に検証
+    const doraemon = events.find(e => e.sourceEventId === 'walkerplus-ar0313e583568');
+    expect(doraemon).toBeDefined();
+    expect(doraemon!.description).toContain('ドラえもん');
+  });
 });
