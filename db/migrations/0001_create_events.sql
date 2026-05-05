@@ -20,9 +20,12 @@ CREATE TABLE events (
   UNIQUE (source, source_event_id)
 );
 
+-- 'simple' は明示的に regconfig キャストする。text → regconfig の暗黙キャストは
+-- catalog 検索を伴う STABLE 扱いとなり、IMMUTABLE が要求される index 式で
+-- "ERROR: 42P17 functions in index expression must be marked IMMUTABLE" になるため。
 CREATE INDEX idx_events_search ON events
   USING GIN (to_tsvector(
-    'simple',
+    'simple'::regconfig,
     title || ' ' || COALESCE(description,'') || ' ' || array_to_string(performers,' ')
   ));
 CREATE INDEX idx_events_starts_at ON events (starts_at);
