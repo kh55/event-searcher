@@ -30,6 +30,10 @@
  *       </div>
  *     </li>
  *   </ul>
+ *
+ * 説明文は HTML 本文には載らないが、ページ冒頭の <script type="application/ld+json">
+ * (Schema.org Event 配列) に description フィールドがあるため、image URL 末尾の数値 ID
+ * (例: "583568_1.jpg" → "583568") を href の "ar0313e583568" 末尾と照合して引き当てる。
  */
 
 import * as cheerio from 'cheerio';
@@ -69,6 +73,37 @@ function wpNormalizeStatus(openClass: string): ReturnType<typeof normalizeTicket
   return normalizeTicketStatus('');
 }
 
+/**
+ * ページ冒頭の application/ld+json (Schema.org Event 配列) を集約し、
+ * 数値イベントID → description のマップを返す。malformed JSON は無視する。
+ */
+function buildDescriptionMap($: cheerio.CheerioAPI): Map<string, string> {
+  const map = new Map<string, string>();
+  $('script[type="application/ld+json"]').each((_, el) => {
+    const text = $(el).contents().first().text();
+    if (!text.trim()) return;
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return;
+    }
+    const items = Array.isArray(data) ? data : [data];
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      const e = item as Record<string, unknown>;
+      if (e['@type'] !== 'Event') continue;
+      const image = typeof e.image === 'string' ? e.image : '';
+      const description = typeof e.description === 'string' ? e.description : '';
+      if (!image || !description) continue;
+      // image URL 末尾は ".../<dir>/<digits>_<n>.jpg" — 1段目の数値群がイベントID
+      const m = image.match(/(\d+)_\d+\.jpg(?:[?#]|$)/);
+      if (m) map.set(m[1], description);
+    }
+  });
+  return map;
+}
+
 export const walkerplusAdapter: SourceAdapter = {
   source: 'walkerplus',
 
@@ -77,6 +112,7 @@ export const walkerplusAdapter: SourceAdapter = {
     const html = await fetchHtml(url, opts);
     const $ = cheerio.load(html);
 
+    const descByEventId = buildDescriptionMap($);
     const events: RawEvent[] = [];
 
     // li.m-mainlist__item > div.m-mainlist-item を選択することで広告 li をスキップする
@@ -93,6 +129,9 @@ export const walkerplusAdapter: SourceAdapter = {
       const idMatch = href.match(/\/event\/([^/]+)\//);
       if (!idMatch) return;
       const sourceEventId = `walkerplus-${idMatch[1]}`;
+      // 数値部分 (例: "ar0313e583568" → "583568") を JSON-LD と照合
+      const numericIdMatch = idMatch[1].match(/e(\d+)$/);
+      const description = numericIdMatch ? descByEventId.get(numericIdMatch[1]) : undefined;
 
       // 期間テキストとステータス
       const $period = $el.find('p.m-mainlist-item-event__period');
@@ -126,12 +165,13 @@ export const walkerplusAdapter: SourceAdapter = {
       events.push({
         sourceEventId,
         title,
+        description,
         startsAt,
         venueName,
         prefecture,
         ticketUrl,
         ticketStatus,
-        isOnline: isOnlineEvent({ title, venueName }),
+        isOnline: isOnlineEvent({ title, description, venueName }),
         performers: [],
         tags: [],
       });
