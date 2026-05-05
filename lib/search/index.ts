@@ -21,11 +21,16 @@ import { piaAdapter } from '@/scrapers/pia';
 import { walkerplusAdapter } from '@/scrapers/walkerplus';
 import { prefecturesInArea, prefectureToArea, AREAS, type Area } from '@/lib/area';
 import { isOnlineEvent } from '@/lib/online-detection';
+import { RateLimiter } from '@/scrapers/http';
 import type { RawEvent, SourceAdapter } from '@/scrapers/types';
 
 const ADAPTERS: SourceAdapter[] = [piaAdapter, walkerplusAdapter];
 
-export type FetchStrategy = 'batch' | 'cache' | 'on_demand';
+// 同一プロセス内のオンデマンド取得をスロットリングする。Vercel Functions は cold start ごとに
+// 別インスタンスになるが、温まったインスタンスへの連続リクエストには有効。
+const adapterLimiter = new RateLimiter(2000);
+
+export type FetchStrategy = 'db_only' | 'batch' | 'cache' | 'on_demand';
 
 export interface SearchResult {
   events: any[];
@@ -42,20 +47,25 @@ export async function searchEvents(
   input: SearchInput,
 ): Promise<SearchResult> {
   const params = buildSearchQueryParams(input);
-  const cacheKey = generateCacheKey({
-    q: params.q,
-    from: params.fromIso,
-    to: params.toIso,
-    areas: params.areas ?? [],
-    includeOnline: params.includeOnline,
-    onSaleOnly: params.onSaleOnly,
-  });
 
-  let strategy: FetchStrategy = 'batch';
+  let strategy: FetchStrategy;
+  let cacheKey: string | null = null;
   const sourcesFailed: string[] = [];
   const sourcesSucceeded: string[] = [];
 
-  if (input.q) {
+  if (!input.q) {
+    // キーワードなし検索は DB のみ参照(アダプタ取り込みやキャッシュ判定の意味がない)
+    strategy = 'db_only';
+  } else {
+    cacheKey = generateCacheKey({
+      q: params.q,
+      from: params.fromIso,
+      to: params.toIso,
+      areas: params.areas ?? [],
+      includeOnline: params.includeOnline,
+      onSaleOnly: params.onSaleOnly,
+    });
+
     // 1. saved_keywords に登録済みか確認(バッチ取得済みとみなす)
     const { data: saved } = await client
       .from('saved_keywords')
@@ -63,7 +73,9 @@ export async function searchEvents(
       .eq('keyword', input.q)
       .maybeSingle();
 
-    if (!saved) {
+    if (saved) {
+      strategy = 'batch';
+    } else {
       // 2. キャッシュ確認
       const cached = await getCachedEventIds(client, cacheKey);
       if (cached) {
@@ -73,12 +85,6 @@ export async function searchEvents(
         const fetchResult = await runOnDemandFetch(client, input);
         sourcesFailed.push(...fetchResult.failed);
         sourcesSucceeded.push(...fetchResult.succeeded);
-
-        // DB 検索してキャッシュ登録
-        const ids = await runDbSearch(client, params).then(rows =>
-          rows.map((r: any) => r.id as number),
-        );
-        await setCachedEventIds(client, cacheKey, ids);
         strategy = 'on_demand';
       }
     }
@@ -86,8 +92,15 @@ export async function searchEvents(
 
   const events = await runDbSearch(client, params);
 
+  // on_demand 戦略のときだけキャッシュを更新する。runDbSearch を 1 回で済ませる目的で
+  // ここまで遅延させている。
+  if (strategy === 'on_demand' && cacheKey) {
+    const ids = events.map((r: any) => r.id as number);
+    await setCachedEventIds(client, cacheKey, ids);
+  }
+
   // sources_succeeded/failed は on_demand 戦略でのみ意味を持つ。
-  // batch/cache 戦略時は空配列を返す(アダプタを実行していないため)
+  // db_only/batch/cache 戦略時は空配列を返す(アダプタを実行していないため)
   return {
     events,
     meta: {
@@ -118,21 +131,38 @@ async function runOnDemandFetch(
     includeOnline: input.includeOnline,
   };
 
-  const settled = await Promise.allSettled(ADAPTERS.map(a => a.search(searchParams)));
   const succeeded: string[] = [];
   const failed: string[] = [];
 
-  for (let i = 0; i < settled.length; i++) {
-    const result = settled[i];
-    const adapter = ADAPTERS[i];
-    if (result.status === 'fulfilled') {
-      await upsertEvents(client, adapter.source, result.value);
+  // 外部サイトへの負荷を抑えるため逐次 + 同一プロセスで共有のレートリミッタで間隔を確保。
+  // バッチ取得と同様に、実行ごとに scrape_runs に 1 行記録して観測可能にする。
+  for (const adapter of ADAPTERS) {
+    await adapterLimiter.wait();
+    const startedAt = new Date();
+    let status: 'success' | 'failed' = 'success';
+    let count = 0;
+    let errMsg: string | null = null;
+    try {
+      const events = await adapter.search(searchParams);
+      await upsertEvents(client, adapter.source, events);
+      count = events.length;
       succeeded.push(adapter.source);
-    } else {
-      // アダプタエラーはログ記録のみ。検索は続行する
-      console.error(`[search] adapter ${adapter.source} failed:`, result.reason);
+    } catch (e: unknown) {
+      status = 'failed';
+      errMsg = e instanceof Error ? e.message : String(e);
+      console.error(`[search] adapter ${adapter.source} failed:`, e);
       failed.push(adapter.source);
     }
+    await client.from('scrape_runs').insert({
+      source: adapter.source,
+      keyword: input.q ?? null,
+      trigger: 'on_demand',
+      events_found: count,
+      status,
+      error_message: errMsg,
+      started_at: startedAt.toISOString(),
+      finished_at: new Date().toISOString(),
+    });
   }
 
   return { succeeded, failed };
