@@ -36,7 +36,7 @@ import { isOnlineEvent } from '@/lib/online-detection';
 import { normalizeTicketStatus } from '@/lib/ticket-status';
 
 const AJAX_URL = 'https://t.pia.jp/pia/rlsInfo.do';
-const TICKET_BASE = 'http://ticket.pia.jp';
+const TICKET_BASE = 'https://ticket.pia.jp';
 
 function buildUrl(params: SearchParams): string {
   const q = new URLSearchParams();
