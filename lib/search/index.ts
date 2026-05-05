@@ -193,8 +193,13 @@ async function runDbSearch(
 
   if (p.q) {
     // タイトル・説明の部分一致。performers は TEXT[] なので別途対応が必要だが
-    // MVP では title/description の ILIKE で十分とする
-    query = query.or(`title.ilike.%${p.q}%,description.ilike.%${p.q}%`);
+    // MVP では title/description の ILIKE で十分とする。
+    // PostgREST の or() フィルタ DSL では `,` `(` `)` `"` `\` `*` が予約文字なので
+    // 入力を空白に置換してフィルタ注入を防ぐ。
+    const safeQ = p.q.replace(/[,()"*\\]/g, ' ').trim();
+    if (safeQ) {
+      query = query.or(`title.ilike.%${safeQ}%,description.ilike.%${safeQ}%`);
+    }
   }
 
   if (p.areas) {
