@@ -32,9 +32,6 @@ pnpm-debug.log*
 .vscode/
 .idea/
 
-# next-env.d.ts は通常コミットするが、必要なら無視
-# next-env.d.ts
-
 # brainstorming session artifacts
 .superpowers/
 
@@ -49,3 +46,4 @@ pnpm-debug.log*
 
 # typescript
 *.tsbuildinfo
+next-env.d.ts
