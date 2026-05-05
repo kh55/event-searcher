@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "batch-fetch": "tsx scripts/batch-fetch.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",
@@ -32,6 +33,7 @@
     "eslint-config-next": "16.2.4",
     "jsdom": "^28.1.0",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5",
     "vitest": "^4.1.5"
   }
