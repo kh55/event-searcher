@@ -1,4 +1,10 @@
 // scripts/batch-fetch.ts
+// ローカル実行時のために .env.local を読み込む。GitHub Actions では workflow の env
+// ブロックで環境変数を渡しており、.env.local は存在しないが、dotenv は欠落時に
+// 静かに no-op になるので CI への影響はない。
+import { config as loadEnv } from 'dotenv';
+loadEnv({ path: '.env.local', quiet: true });
+
 import { getServerClient } from '../lib/supabase';
 import { piaAdapter } from '../scrapers/pia';
 import { walkerplusAdapter } from '../scrapers/walkerplus';
