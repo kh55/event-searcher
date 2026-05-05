@@ -27,6 +27,11 @@
  *       </li>
  *     </ul>
  *   </div>
+ *
+ * 既知の制限:
+ *   - 検索結果 HTML フラグメントには description フィールドが含まれていないため、
+ *     RawEvent.description は常に undefined のまま。詳細ページを 1 件ずつ取得すれば
+ *     抽出可能だが、リクエスト数が件数倍になるため未実装。
  */
 
 import * as cheerio from 'cheerio';
