@@ -18,7 +18,9 @@ npm install
 
 ### DB マイグレーション
 
-Supabase ダッシュボードの SQL Editor に `db/migrations/*.sql` を順番に流す。
+Supabase ダッシュボードの SQL Editor に `db/migrations/*.sql` を `0001` → `0005` の順で流す。詳細は `db/README.md`。
+
+Supabase プロジェクトを新規作成するときの推奨設定: **Data API: ON / Automatically expose new tables: OFF / Automatic RLS: ON**(0005 で `service_role` のみに GRANT する前提)。
 
 ### 開発サーバ
 
@@ -40,11 +42,14 @@ npm test
 
 ## 構成
 
+- **アーキテクチャ全体**: `docs/ARCHITECTURE.md`(データフロー / ディレクトリ / DB スキーマ / 運用手順)
 - 設計仕様: `docs/superpowers/specs/2026-05-04-event-searcher-design.md`
 - 実装計画: `docs/superpowers/plans/2026-05-04-event-searcher.md`
 
 ## デプロイ
 
-- フロント/API: Vercel(`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`NEXT_PUBLIC_*` を Secrets に)
-- バッチ: GitHub Actions(同じ Secrets を Repo Secrets に)
-- DB: Supabase クラウド(無料枠)
+- フロント / API: Vercel(`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` を Production env に登録)
+- バッチ: GitHub Actions(同じ 2 つを repo secrets に登録)
+- DB: Supabase クラウド(Free tier、Tokyo リージョン推奨)
+
+詳細手順は `docs/ARCHITECTURE.md` の「デプロイ」「オペレーション」「トラブルシューティング」を参照。
