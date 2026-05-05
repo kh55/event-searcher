@@ -1,6 +1,14 @@
 # DB Migrations
 
-Run order: 0001 → 0002 → 0003 → 0004.
+Run order: 0001 → 0002 → 0003 → 0004 → 0005.
+
+| ファイル | 役割 |
+|---|---|
+| `0001_create_events.sql` | events テーブル + IMMUTABLE wrapper 関数 (`events_search_doc`) + GIN / B-tree index |
+| `0002_create_saved_keywords.sql` | saved_keywords テーブル |
+| `0003_create_search_cache.sql` | search_cache テーブル + expires_at index |
+| `0004_create_scrape_runs.sql` | scrape_runs テーブル + started_at index |
+| `0005_grant_service_role.sql` | `service_role` ロールへの GRANT(Supabase の "Automatically expose new tables: OFF" 補完) |
 
 ## ローカル(Supabase CLI)
 
