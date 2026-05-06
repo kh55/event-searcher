@@ -70,14 +70,14 @@ export default function HomePage() {
     <main className="max-w-3xl mx-auto p-6">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">event-searcher</h1>
-        <a href="/settings" className="text-sm text-blue-600 underline">設定</a>
+        <a href="/settings" className="text-sm text-blue-600 dark:text-blue-400 underline">設定</a>
       </div>
       <div className="flex gap-2 mb-4">
         <input
           value={keyword}
           onChange={e => setKeyword(e.target.value)}
           placeholder="キーワード(声優名・作品名など)"
-          className="flex-1 border rounded px-3 py-2"
+          className="flex-1 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
           onKeyDown={e => {
             if (e.key === 'Enter') search();
           }}
@@ -85,7 +85,7 @@ export default function HomePage() {
         <button
           onClick={search}
           disabled={loading}
-          className="px-4 py-2 bg-blue-500 text-white rounded"
+          className="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50"
         >
           検索
         </button>
@@ -94,7 +94,7 @@ export default function HomePage() {
         <FilterBar filters={filters} onChange={setFilters} />
       </div>
       {meta && (
-        <div className="text-xs text-gray-500 mb-2">
+        <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
           {events.length}件 / {meta.fetched_strategy} /{' '}
           {new Date(meta.fetched_at).toLocaleString('ja-JP')}
         </div>
@@ -106,7 +106,7 @@ export default function HomePage() {
       </div>
       {events.length > 0 && (
         <div className="text-center mt-4">
-          <button onClick={saveKeyword} className="px-4 py-2 border rounded">
+          <button onClick={saveKeyword} className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded">
             ★ このキーワードを保存
           </button>
         </div>
