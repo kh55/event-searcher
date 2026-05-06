@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "event-searcher",
   description:
-    "声優・アニメ作品名等のキーワードで、ライブ・コンサート・トーク・展示など全国のイベントを横断検索できる Web サービス。",
+    "気になるキーワードで、ライブ・コンサート・トーク・展示など全国のイベントを横断検索できる Web サービス。",
 };
 
 export default function RootLayout({

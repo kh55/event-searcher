@@ -56,7 +56,7 @@ export async function searchEvents(
 
   // キーワード未入力時は saved_keywords をデフォルトの絞り込み語として使う。
   // これがないと events テーブルのあらゆる行(別キーワードでの on_demand 取り込みも含む)が
-  // 出てしまい、保存している推しキーワードと無関係なイベントが混入する。
+  // 出てしまい、保存しているキーワードと無関係なイベントが混入する。
   let queryKeywords: string[];
 
   if (!input.q) {
