@@ -32,6 +32,11 @@
  *   - 検索結果 HTML フラグメントには description フィールドが含まれていないため、
  *     RawEvent.description は常に undefined のまま。詳細ページを 1 件ずつ取得すれば
  *     抽出可能だが、リクエスト数が件数倍になるため未実装。
+ *   - ぴあ側の `kw=` 検索は緩く、bundle / release / venue / 出演者など複数フィールドを
+ *     部分一致で見るため、結果にはキーワードと一見無関係な release が混入する。
+ *     events テーブル側の ILIKE では拾えないノイズが残るので、
+ *     walkerplus と同様に取り込み時に title/bundleTitle/venueName のいずれかへ
+ *     keyword の部分一致が無い release は捨てる(クライアント側再フィルタ)。
  */
 
 import * as cheerio from 'cheerio';
@@ -137,6 +142,14 @@ export const piaAdapter: SourceAdapter = {
         const prefecture = prefMatch ? prefMatch[1] : undefined;
         // 都道府県部分を除いたvenue名
         const venueName = prefMatch ? venue.slice(0, venue.lastIndexOf('(')).trim() : venue || undefined;
+
+        // クライアント側 keyword 再フィルタ: title / bundleTitle / venueName のどこにも
+        // 部分一致しない release は ぴあ側検索のノイズとみなして捨てる
+        if (params.keyword) {
+          const kw = params.keyword.toLowerCase();
+          const haystack = `${title} ${bundleTitle} ${venueName ?? ''}`.toLowerCase();
+          if (!haystack.includes(kw)) return;
+        }
 
         events.push({
           sourceEventId,
