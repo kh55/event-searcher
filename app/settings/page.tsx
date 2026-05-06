@@ -26,14 +26,24 @@ export default function SettingsPage() {
   return (
     <main className="max-w-3xl mx-auto p-6">
       <h1 className="text-2xl font-bold mb-4">設定 / 保存キーワード</h1>
-      <a href="/" className="text-blue-600 underline text-sm">← 検索に戻る</a>
+      <a href="/" className="text-blue-600 dark:text-blue-400 underline text-sm">← 検索に戻る</a>
       <ul className="mt-4 space-y-2">
         {loading && <li>読み込み中…</li>}
-        {!loading && keywords.length === 0 && <li className="text-gray-500">保存キーワードはありません</li>}
+        {!loading && keywords.length === 0 && (
+          <li className="text-gray-500 dark:text-gray-400">保存キーワードはありません</li>
+        )}
         {keywords.map(k => (
-          <li key={k.id} className="flex justify-between items-center border rounded px-3 py-2">
+          <li
+            key={k.id}
+            className="flex justify-between items-center border border-gray-200 dark:border-gray-700 rounded px-3 py-2"
+          >
             <span>{k.keyword}</span>
-            <button onClick={() => remove(k.id)} className="text-red-600 text-sm">削除</button>
+            <button
+              onClick={() => remove(k.id)}
+              className="text-red-600 dark:text-red-400 text-sm"
+            >
+              削除
+            </button>
           </li>
         ))}
       </ul>
