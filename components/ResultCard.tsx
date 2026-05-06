@@ -34,8 +34,8 @@ export function ResultCard({ event }: { event: Event }) {
     : date.toLocaleString('ja-JP', { dateStyle: 'medium', timeStyle: 'short' });
 
   return (
-    <div className="border rounded-md p-3 mb-2 bg-white">
-      <div className="flex justify-between text-xs text-gray-500">
+    <div className="border border-gray-200 dark:border-gray-700 rounded-md p-3 mb-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+      <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
         <span>{dateStr}</span>
         <span
           style={{ background: status.color }}
@@ -45,13 +45,13 @@ export function ResultCard({ event }: { event: Event }) {
         </span>
       </div>
       <div className="font-semibold mt-1">{event.title}</div>
-      <div className="text-sm text-gray-700">
+      <div className="text-sm text-gray-700 dark:text-gray-300">
         {event.is_online
           ? 'オンライン'
           : `${event.prefecture ?? ''} / ${event.venue_name ?? ''}`}
       </div>
       {event.performers.length > 0 && (
-        <div className="text-xs text-gray-600 mt-1">
+        <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
           出演: {event.performers.join(', ')}
         </div>
       )}
@@ -61,12 +61,12 @@ export function ResultCard({ event }: { event: Event }) {
             href={event.ticket_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-blue-600 underline"
+            className="text-xs text-blue-600 dark:text-blue-400 underline"
           >
             チケットページ →
           </a>
         )}
-        <span className="text-xs text-gray-400">via {event.source}</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500">via {event.source}</span>
       </div>
     </div>
   );
