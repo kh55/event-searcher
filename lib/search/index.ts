@@ -19,12 +19,13 @@ import { generateCacheKey, getCachedEventIds, setCachedEventIds } from '@/lib/ca
 import { buildSearchQueryParams, type SearchInput, type QueryParams } from './query';
 import { piaAdapter } from '@/scrapers/pia';
 import { walkerplusAdapter } from '@/scrapers/walkerplus';
+import { peatixAdapter } from '@/scrapers/peatix';
 import { prefecturesInArea, prefectureToArea, AREAS, type Area } from '@/lib/area';
 import { isOnlineEvent } from '@/lib/online-detection';
 import { RateLimiter } from '@/scrapers/http';
 import type { RawEvent, SourceAdapter } from '@/scrapers/types';
 
-const ADAPTERS: SourceAdapter[] = [piaAdapter, walkerplusAdapter];
+const ADAPTERS: SourceAdapter[] = [piaAdapter, walkerplusAdapter, peatixAdapter];
 
 // 同一プロセス内のオンデマンド取得をスロットリングする。Vercel Functions は cold start ごとに
 // 別インスタンスになるが、温まったインスタンスへの連続リクエストには有効。

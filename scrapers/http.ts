@@ -32,6 +32,15 @@ export async function fetchHtml(url: string, opts: FetchHtmlOptions = {}): Promi
   }
 }
 
+// JSON API 用の薄いラッパー。fetchHtml の UA / Accept-Language / タイムアウト処理を再利用する。
+export async function fetchJson<T = unknown>(url: string, opts: FetchHtmlOptions = {}): Promise<T> {
+  const text = await fetchHtml(url, {
+    ...opts,
+    headers: { Accept: 'application/json', ...(opts.headers ?? {}) },
+  });
+  return JSON.parse(text) as T;
+}
+
 // 並列実行のための簡易レートリミッタ
 export class RateLimiter {
   private last = 0;
