@@ -35,6 +35,9 @@ pnpm-debug.log*
 # brainstorming session artifacts
 .superpowers/
 
+# Playwright MCP run artifacts (snapshots / console logs from local browser checks)
+.playwright-mcp/
+
 # Claude Code local settings
 .claude/settings.local.json
 
