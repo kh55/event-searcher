@@ -22,17 +22,21 @@ export function FilterBar({
     onChange({ ...filters, areas: next });
   };
 
+  const inactivePill =
+    'bg-gray-200 text-gray-900 dark:bg-gray-700 dark:text-gray-100';
+  const activePill = 'bg-blue-500 text-white';
+
   return (
     <div className="space-y-3">
       <div>
-        <div className="text-xs uppercase text-gray-500 mb-1">日付</div>
+        <div className="text-xs uppercase text-gray-500 dark:text-gray-400 mb-1">日付</div>
         <div className="flex gap-2 flex-wrap">
           {(['this_weekend', 'next_weekend', 'this_month'] as const).map(p => (
             <button
               key={p}
               onClick={() => onChange({ ...filters, datePreset: p })}
               className={`px-3 py-1 rounded ${
-                filters.datePreset === p ? 'bg-blue-500 text-white' : 'bg-gray-200'
+                filters.datePreset === p ? activePill : inactivePill
               }`}
             >
               {p === 'this_weekend'
@@ -45,14 +49,14 @@ export function FilterBar({
         </div>
       </div>
       <div>
-        <div className="text-xs uppercase text-gray-500 mb-1">エリア</div>
+        <div className="text-xs uppercase text-gray-500 dark:text-gray-400 mb-1">エリア</div>
         <div className="flex gap-2 flex-wrap">
           {AREAS.map(a => (
             <button
               key={a}
               onClick={() => toggleArea(a)}
               className={`px-3 py-1 rounded ${
-                filters.areas.includes(a) ? 'bg-blue-500 text-white' : 'bg-gray-200'
+                filters.areas.includes(a) ? activePill : inactivePill
               }`}
             >
               {a}
