@@ -53,10 +53,18 @@ export async function searchEvents(
   const sourcesFailed: string[] = [];
   const sourcesSucceeded: string[] = [];
 
+  // キーワード未入力時は saved_keywords をデフォルトの絞り込み語として使う。
+  // これがないと events テーブルのあらゆる行(別キーワードでの on_demand 取り込みも含む)が
+  // 出てしまい、保存している推しキーワードと無関係なイベントが混入する。
+  let queryKeywords: string[];
+
   if (!input.q) {
     // キーワードなし検索は DB のみ参照(アダプタ取り込みやキャッシュ判定の意味がない)
     strategy = 'db_only';
+    const { data: saved } = await client.from('saved_keywords').select('keyword');
+    queryKeywords = (saved ?? []).map(s => s.keyword as string).filter(Boolean);
   } else {
+    queryKeywords = [input.q];
     cacheKey = generateCacheKey({
       q: params.q,
       from: params.fromIso,
@@ -90,7 +98,7 @@ export async function searchEvents(
     }
   }
 
-  const events = await runDbSearch(client, params);
+  const events = await runDbSearch(client, params, queryKeywords);
 
   // on_demand 戦略のときだけキャッシュを更新する。runDbSearch を 1 回で済ませる目的で
   // ここまで遅延させている。
@@ -212,6 +220,7 @@ async function upsertEvents(
 async function runDbSearch(
   client: SupabaseClient,
   p: QueryParams,
+  keywords: string[],
 ): Promise<any[]> {
   let query = client
     .from('events')
@@ -221,23 +230,28 @@ async function runDbSearch(
     .order('starts_at', { ascending: true })
     .limit(200);
 
-  if (p.q) {
-    // PostgREST の or() フィルタ DSL では `,` `(` `)` `"` `\` `*` が予約文字。
-    // さらに performers の `cs.{...}` を併用するので `{` `}` も予約に加える。
-    // 入力を空白に置換してフィルタ注入を防ぐ。
-    const safeQ = p.q.replace(/[,()"*\\{}]/g, ' ').trim();
+  // PostgREST の or() フィルタ DSL では `,` `(` `)` `"` `\` `*` が予約文字。
+  // performers の `cs.{...}` を併用するので `{` `}` も予約に加える。
+  // 入力を空白に置換してフィルタ注入を防ぐ。
+  //
+  // 各 keyword について title / description の部分一致 + performers TEXT[] の要素一致を
+  // OR で繋ぐ。pia adapter は bundleTitle (= アーティスト名 / 作品名) を performers に
+  // 入れるので、「花江夏樹」「ゆず」のような単独名キーワードを保存している場合、
+  // release title に名前が直接出てこないイベントもここで拾える。
+  // cs.{X} は配列要素の完全一致なので、bundleTitle 中に keyword を「含む」だけの
+  // ケース(例: bundleTitle = "鬼滅の刃 花江夏樹トーク")は引けない。
+  // 将来は events_search_doc(GIN tsvector)を使う RPC に置き換える前提の MVP 実装。
+  const orParts: string[] = [];
+  for (const kw of keywords) {
+    const safeQ = kw.replace(/[,()"*\\{}]/g, ' ').trim();
     if (safeQ) {
-      // タイトル / 説明の部分一致に加えて、performers TEXT[] への要素一致も or() に含める。
-      // pia adapter は bundleTitle (= アーティスト名 / 作品名) を performers に入れるので、
-      // 「花江夏樹」「ゆず」のような単独名キーワードを保存している場合、release title に
-      // その名前が直接出てこないイベントもここで拾える。
-      // cs.{X} は配列要素の完全一致なので、bundleTitle 中に keyword を「含む」だけの
-      // ケース(例: bundleTitle = "鬼滅の刃 花江夏樹トーク")は引けない。これは将来
-      // 全文検索 RPC (events_search_doc + tsquery) に置き換える前提の MVP 実装。
-      query = query.or(
-        `title.ilike.%${safeQ}%,description.ilike.%${safeQ}%,performers.cs.{"${safeQ}"}`,
-      );
+      orParts.push(`title.ilike.%${safeQ}%`);
+      orParts.push(`description.ilike.%${safeQ}%`);
+      orParts.push(`performers.cs.{"${safeQ}"}`);
     }
+  }
+  if (orParts.length > 0) {
+    query = query.or(orParts.join(','));
   }
 
   if (p.areas) {
