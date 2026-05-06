@@ -27,12 +27,11 @@ describe('parsePiaDate', () => {
 });
 
 describe('piaAdapter.search', () => {
+  // パース動作の確認時は keyword を外す。keyword フィルタの挙動は後段の専用テストで検証。
   it('parses fixture and returns RawEvent[] with required fields', async () => {
-    // Inject fake fetch that returns the real fixture HTML
     const fakeFetch = vi.fn(async () => new Response(FIXTURE, { status: 200 }));
     const events = await piaAdapter.search(
       {
-        keyword: 'ライブ',
         dateFrom: new Date('2026-05-01'),
         dateTo: new Date('2026-05-31'),
         includeOnline: true,
@@ -57,7 +56,7 @@ describe('piaAdapter.search', () => {
   it('returns on_sale status for 販売期間中', async () => {
     const fakeFetch = vi.fn(async () => new Response(FIXTURE, { status: 200 }));
     const events = await piaAdapter.search(
-      { keyword: 'ライブ', dateFrom: new Date(), dateTo: new Date(), includeOnline: true },
+      { dateFrom: new Date(), dateTo: new Date(), includeOnline: true },
       { fetch: fakeFetch as unknown as typeof fetch },
     );
     const onSaleEvents = events.filter(e => e.ticketStatus === 'on_sale');
@@ -67,7 +66,7 @@ describe('piaAdapter.search', () => {
   it('detects online events (PIA LIVE STREAM is online)', async () => {
     const fakeFetch = vi.fn(async () => new Response(FIXTURE, { status: 200 }));
     const events = await piaAdapter.search(
-      { keyword: 'ライブ', dateFrom: new Date(), dateTo: new Date(), includeOnline: true },
+      { dateFrom: new Date(), dateTo: new Date(), includeOnline: true },
       { fetch: fakeFetch as unknown as typeof fetch },
     );
     const onlineEvents = events.filter(e => e.isOnline);
@@ -102,7 +101,7 @@ describe('piaAdapter.search', () => {
   it('has ticketUrl that starts with http', async () => {
     const fakeFetch = vi.fn(async () => new Response(FIXTURE, { status: 200 }));
     const events = await piaAdapter.search(
-      { keyword: 'ライブ', dateFrom: new Date(), dateTo: new Date(), includeOnline: true },
+      { dateFrom: new Date(), dateTo: new Date(), includeOnline: true },
       { fetch: fakeFetch as unknown as typeof fetch },
     );
     const withUrl = events.filter(e => e.ticketUrl);
@@ -110,5 +109,34 @@ describe('piaAdapter.search', () => {
     withUrl.forEach(e => {
       expect(e.ticketUrl).toMatch(/^https?:\/\//);
     });
+  });
+
+  it('drops releases whose title / bundle / venue do not contain keyword', async () => {
+    const fakeFetch = vi.fn(async () => new Response(FIXTURE, { status: 200 }));
+    const baseParams = { dateFrom: new Date(), dateTo: new Date(), includeOnline: true };
+
+    const all = await piaAdapter.search(baseParams, {
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+    const filtered = await piaAdapter.search(
+      { ...baseParams, keyword: 'ゆず' },
+      { fetch: fakeFetch as unknown as typeof fetch },
+    );
+
+    expect(filtered.length).toBeGreaterThan(0);
+    expect(filtered.length).toBeLessThan(all.length);
+    // 「ゆず」を含まない release(YAESU LAUGH WEEK 系)が落ちていることを確認
+    expect(filtered.every(e => `${e.title} ${e.performers.join(' ')} ${e.venueName ?? ''}`
+      .toLowerCase()
+      .includes('ゆず'))).toBe(true);
+  });
+
+  it('keeps all releases when keyword is omitted', async () => {
+    const fakeFetch = vi.fn(async () => new Response(FIXTURE, { status: 200 }));
+    const events = await piaAdapter.search(
+      { dateFrom: new Date(), dateTo: new Date(), includeOnline: true },
+      { fetch: fakeFetch as unknown as typeof fetch },
+    );
+    expect(events.length).toBeGreaterThan(1);
   });
 });
