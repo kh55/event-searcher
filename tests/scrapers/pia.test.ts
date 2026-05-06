@@ -88,14 +88,18 @@ describe('piaAdapter.search', () => {
     expect(events).toEqual([]);
   });
 
-  it('returns empty array for no-HTML response', async () => {
+  it('throws when response is missing ptotalcnt input (blocked / unexpected page)', async () => {
+    // 200 OK で ptotalcnt が無い HTML を返されたら「正規の 0 件」と区別できないため throw する。
+    // これにより scrape_runs に failed として記録され、success / events_found=0 に
+    // 隠れていたブロック状態を可視化できる。
     const noResult = '<html><body><p>該当するイベントはありません</p></body></html>';
     const fakeFetch = vi.fn(async () => new Response(noResult, { status: 200 }));
-    const events = await piaAdapter.search(
-      { keyword: 'noresult', dateFrom: new Date(), dateTo: new Date(), includeOnline: true },
-      { fetch: fakeFetch as unknown as typeof fetch },
-    );
-    expect(events).toEqual([]);
+    await expect(
+      piaAdapter.search(
+        { keyword: 'noresult', dateFrom: new Date(), dateTo: new Date(), includeOnline: true },
+        { fetch: fakeFetch as unknown as typeof fetch },
+      ),
+    ).rejects.toThrow(/ptotalcnt/);
   });
 
   it('has ticketUrl that starts with http', async () => {
