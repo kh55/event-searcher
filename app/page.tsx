@@ -85,30 +85,63 @@ export default function HomePage() {
         <button
           onClick={search}
           disabled={loading}
-          className="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50"
+          className="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50 flex items-center gap-2"
         >
-          検索
+          {loading && (
+            <span
+              aria-hidden
+              className="inline-block w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin"
+            />
+          )}
+          {loading ? '検索中…' : '検索'}
         </button>
       </div>
       <div className="mb-4">
         <FilterBar filters={filters} onChange={setFilters} />
       </div>
-      {meta && (
-        <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-          {events.length}件 / {meta.fetched_strategy} /{' '}
-          {new Date(meta.fetched_at).toLocaleString('ja-JP')}
+      {loading ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center justify-center gap-2 py-10 text-gray-500 dark:text-gray-400"
+        >
+          <span
+            aria-hidden
+            className="inline-block w-5 h-5 rounded-full border-2 border-gray-300 dark:border-gray-600 border-t-blue-500 animate-spin"
+          />
+          <span>検索中…</span>
         </div>
-      )}
-      <div>
-        {events.map(e => (
-          <ResultCard key={e.id} event={e} />
-        ))}
-      </div>
-      {events.length > 0 && (
-        <div className="text-center mt-4">
-          <button onClick={saveKeyword} className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded">
-            ★ このキーワードを保存
-          </button>
+      ) : meta ? (
+        <>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+            {events.length}件 / {meta.fetched_strategy} /{' '}
+            {new Date(meta.fetched_at).toLocaleString('ja-JP')}
+          </div>
+          {events.length === 0 ? (
+            <div className="text-center py-10 text-gray-500 dark:text-gray-400">
+              該当するイベントはありませんでした
+            </div>
+          ) : (
+            <>
+              <div>
+                {events.map(e => (
+                  <ResultCard key={e.id} event={e} />
+                ))}
+              </div>
+              {keyword && (
+                <div className="text-center mt-4">
+                  <button onClick={saveKeyword} className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded">
+                    ★ このキーワードを保存
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      ) : (
+        <div className="text-center py-10 text-gray-500 dark:text-gray-400 text-sm">
+          キーワードを入力して検索ボタンを押してください
+          <span className="block mt-1 text-xs">(空のまま検索すると、保存キーワードに該当するイベントを表示します)</span>
         </div>
       )}
     </main>
