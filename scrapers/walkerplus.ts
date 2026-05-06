@@ -109,7 +109,10 @@ export const walkerplusAdapter: SourceAdapter = {
 
   async search(params: SearchParams, opts: FetchHtmlOptions = {}) {
     const url = buildUrl();
-    const html = await fetchHtml(url, opts);
+    const html = await fetchHtml(url, {
+      ...opts,
+      headers: { Referer: 'https://www.walkerplus.com/', ...(opts.headers ?? {}) },
+    });
     const $ = cheerio.load(html);
 
     const descByEventId = buildDescriptionMap($);
