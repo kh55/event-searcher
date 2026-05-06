@@ -222,13 +222,21 @@ async function runDbSearch(
     .limit(200);
 
   if (p.q) {
-    // タイトル・説明の部分一致。performers は TEXT[] なので別途対応が必要だが
-    // MVP では title/description の ILIKE で十分とする。
-    // PostgREST の or() フィルタ DSL では `,` `(` `)` `"` `\` `*` が予約文字なので
+    // PostgREST の or() フィルタ DSL では `,` `(` `)` `"` `\` `*` が予約文字。
+    // さらに performers の `cs.{...}` を併用するので `{` `}` も予約に加える。
     // 入力を空白に置換してフィルタ注入を防ぐ。
-    const safeQ = p.q.replace(/[,()"*\\]/g, ' ').trim();
+    const safeQ = p.q.replace(/[,()"*\\{}]/g, ' ').trim();
     if (safeQ) {
-      query = query.or(`title.ilike.%${safeQ}%,description.ilike.%${safeQ}%`);
+      // タイトル / 説明の部分一致に加えて、performers TEXT[] への要素一致も or() に含める。
+      // pia adapter は bundleTitle (= アーティスト名 / 作品名) を performers に入れるので、
+      // 「花江夏樹」「ゆず」のような単独名キーワードを保存している場合、release title に
+      // その名前が直接出てこないイベントもここで拾える。
+      // cs.{X} は配列要素の完全一致なので、bundleTitle 中に keyword を「含む」だけの
+      // ケース(例: bundleTitle = "鬼滅の刃 花江夏樹トーク")は引けない。これは将来
+      // 全文検索 RPC (events_search_doc + tsquery) に置き換える前提の MVP 実装。
+      query = query.or(
+        `title.ilike.%${safeQ}%,description.ilike.%${safeQ}%,performers.cs.{"${safeQ}"}`,
+      );
     }
   }
 
