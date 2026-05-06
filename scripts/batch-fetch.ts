@@ -8,12 +8,13 @@ loadEnv({ path: '.env.local', quiet: true });
 import { getServerClient } from '../lib/supabase';
 import { piaAdapter } from '../scrapers/pia';
 import { walkerplusAdapter } from '../scrapers/walkerplus';
+import { peatixAdapter } from '../scrapers/peatix';
 import { prefectureToArea } from '../lib/area';
 import { isOnlineEvent } from '../lib/online-detection';
 import type { RawEvent, SourceAdapter } from '../scrapers/types';
 import { RateLimiter } from '../scrapers/http';
 
-const ADAPTERS: SourceAdapter[] = [piaAdapter, walkerplusAdapter];
+const ADAPTERS: SourceAdapter[] = [piaAdapter, walkerplusAdapter, peatixAdapter];
 const limiter = new RateLimiter(2000); // 2秒/リクエスト
 
 async function main() {

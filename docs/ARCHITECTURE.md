@@ -30,6 +30,7 @@
                           ┌─────────────────┐                  ▲
                           │ pia.jp adapter  │ ────upsert──────┘
                           │ walkerplus      │
+                          │ peatix (JSON)   │
                           └─────────────────┘
 ```
 
@@ -68,10 +69,11 @@ event-searcher/
 │   └── supabase.ts            getServerClient() (Service Role キャッシュ)
 ├── scrapers/                  外部サイトアダプタ
 │   ├── types.ts               SourceAdapter / RawEvent / SearchParams
-│   ├── http.ts                fetchHtml / RateLimiter
+│   ├── http.ts                fetchHtml / fetchJson / RateLimiter
 │   ├── pia.ts                 piaAdapter (t.pia.jp)
 │   ├── walkerplus.ts          walkerplusAdapter (walkerplus.com)
-│   └── __fixtures__/          各 adapter の HTML フィクスチャ
+│   ├── peatix.ts              peatixAdapter (peatix-api.com / JSON)
+│   └── __fixtures__/          各 adapter の HTML / JSON フィクスチャ
 ├── scripts/
 │   └── batch-fetch.ts         cron + ローカル実行のエントリ
 ├── db/
@@ -115,7 +117,7 @@ q あり
 ```
 1. saved_keywords を全件取得
 2. for keyword in keywords:
-     for adapter in [pia, walkerplus]:
+     for adapter in [pia, walkerplus, peatix]:
        ├ rate limit 2s wait
        ├ adapter.search(keyword, dateFrom=now, dateTo=now+30d, includeOnline=true)
        ├ events を upsert (UNIQUE(source, source_event_id) で衝突解決)
@@ -254,6 +256,7 @@ vercel --prod    # CLI で即時再デプロイ
 - **pia adapter**: 検索結果 HTML フラグメントに description が含まれないため `RawEvent.description` は常に undefined
 - **walkerplus adapter**: 1 ページ目(約 10 件)しか取得しない
 - **walkerplus adapter**: クライアント側で `keyword` をタイトル / 会場名に部分一致でフィルタ(walkerplus 自体がキーワード検索を提供しないため)
+- **peatix adapter**: 検索 JSON API は `dateFrom/dateTo` を受け付けないため、クライアント側 `startsAt` フィルタで絞り込む。`description` / `performers` は API 応答に含まれないため空(`group.name` は主催であって出演者ではないので入れていない)
 - **`array_to_string`** が `STABLE` のため、events の GIN index は `events_search_doc()` IMMUTABLE wrapper を介して張る
 - **events 古データ削除**: `starts_at < now - 24h` で削除。長期イベント(展示など)で `starts_at` 過去 + `ends_at` 未来は消える
 - **`updated_at` 自動更新トリガー未設定**: アプリ側で明示的に `updated_at: now` を渡してカバー
