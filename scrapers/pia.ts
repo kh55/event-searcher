@@ -89,11 +89,20 @@ export const piaAdapter: SourceAdapter = {
 
   async search(params: SearchParams, opts: FetchHtmlOptions = {}) {
     const url = buildUrl(params);
-    const html = await fetchHtml(url, opts);
+    const html = await fetchHtml(url, {
+      ...opts,
+      headers: { Referer: 'https://t.pia.jp/', ...(opts.headers ?? {}) },
+    });
     const $ = cheerio.load(html);
 
-    // ptotalcnt が 0 → 結果なし
-    const totalCnt = Number($('input[name="ptotalcnt"]').val() ?? '0');
+    // ptotalcnt input が無い HTML はブロックページ等のフォーマット崩れと判定して throw。
+    // input が存在して value=0 なら「正規の 0 件」として空配列を返す。
+    // 200 OK で空 HTML を返されたケースを「success / 0 件」として隠蔽してきた問題を可視化する。
+    const $totalCnt = $('input[name="ptotalcnt"]');
+    if ($totalCnt.length === 0) {
+      throw new Error('pia: response missing ptotalcnt (likely blocked or unexpected page)');
+    }
+    const totalCnt = Number($totalCnt.val() ?? '0');
     if (totalCnt === 0) return [];
 
     const events: RawEvent[] = [];
