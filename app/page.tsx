@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ResultCard } from '@/components/ResultCard';
 import { FilterBar, type Filters } from '@/components/FilterBar';
 import { getThisWeekend, getNextWeekend } from '@/lib/date';
@@ -25,8 +25,13 @@ export default function HomePage() {
   const [events, setEvents] = useState<any[]>([]);
   const [meta, setMeta] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  // setLoading はレンダリングを待つため、連打や Enter 連射の同フレーム内では
+  // disabled が反映されない。同期的に弾くために ref を併用する。
+  const inFlightRef = useRef(false);
 
   async function search() {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setLoading(true);
     try {
       const range = rangeFor(filters.datePreset);
@@ -46,6 +51,7 @@ export default function HomePage() {
       setEvents(data.events ?? []);
       setMeta(data.meta ?? null);
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
     }
   }
