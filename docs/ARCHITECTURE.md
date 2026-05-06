@@ -1,6 +1,6 @@
 # Architecture
 
-声優・アニメ作品名等のキーワードでライブ / コンサート / トーク / 展示を横断検索する Web サービス(MVP・個人利用 first)。本ドキュメントは現行の構成・データフロー・運用手順をまとめる。
+気になるキーワードでライブ / コンサート / トーク / 展示など各種イベントを横断検索する Web サービス(MVP・個人利用 first)。ジャンルは特に絞っていない。本ドキュメントは現行の構成・データフロー・運用手順をまとめる。
 
 詳細な設計判断の経緯は `docs/superpowers/specs/2026-05-04-event-searcher-design.md` を、初期実装の段取りは `docs/superpowers/plans/2026-05-04-event-searcher.md` を参照。
 
@@ -139,7 +139,7 @@ cron は UTC `0 21,9 * * *` = JST 06:00 / 18:00。`workflow_dispatch:` で手動
 | テーブル | 役割 | 主要列 |
 |---|---|---|
 | `events` | 取り込み済みイベント本体 | `(source, source_event_id) UNIQUE`, `starts_at`, `area`, `is_online`, `ticket_status`, `description`, `performers[]`, GIN インデックス `events_search_doc(title, description, performers)` |
-| `saved_keywords` | 推しキーワード | `keyword UNIQUE`, `last_fetched_at` |
+| `saved_keywords` | 保存キーワード(バッチ継続取得対象) | `keyword UNIQUE`, `last_fetched_at` |
 | `search_cache` | on-demand 結果のキャッシュ | `cache_key PK` (sha256), `event_ids BIGINT[]`, `expires_at`(6h) |
 | `scrape_runs` | スクレイプ実行ログ | `source`, `keyword`, `trigger ('cron'|'on_demand')`, `events_found`, `status`, `error_message` |
 

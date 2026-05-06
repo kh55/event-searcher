@@ -76,7 +76,7 @@ export default function HomePage() {
         <input
           value={keyword}
           onChange={e => setKeyword(e.target.value)}
-          placeholder="キーワード(声優名・作品名など)"
+          placeholder="キーワード(アーティスト・作品・会場・イベント名など)"
           className="flex-1 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
           onKeyDown={e => {
             if (e.key === 'Enter') search();
