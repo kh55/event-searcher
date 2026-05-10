@@ -12,3 +12,6 @@ CREATE TABLE scrape_runs (
 );
 
 CREATE INDEX idx_scrape_runs_started_at ON scrape_runs (started_at DESC);
+
+INSERT INTO schema_migrations(filename) VALUES ('0004_create_scrape_runs.sql')
+ON CONFLICT (filename) DO NOTHING;
