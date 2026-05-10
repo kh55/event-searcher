@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "batch-fetch": "tsx scripts/batch-fetch.ts"
+    "batch-fetch": "tsx scripts/batch-fetch.ts",
+    "migrate": "tsx scripts/migrate.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",
