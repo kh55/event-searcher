@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getServerClient } from '@/lib/supabase';
+import { getPool } from '@/lib/db';
 import { searchEvents } from '@/lib/search';
 
 export const searchInputSchema = z.object({
@@ -25,9 +25,9 @@ export async function POST(req: NextRequest) {
     );
   }
   const v = parsed.data;
-  const client = getServerClient();
+  const pool = getPool();
   try {
-    const result = await searchEvents(client, {
+    const result = await searchEvents(pool, {
       q: v.q,
       from: v.from,
       to: v.to,
@@ -36,10 +36,11 @@ export async function POST(req: NextRequest) {
       onSaleOnly: v.on_sale_only,
     });
     return NextResponse.json(result);
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('[search] error', e);
+    const message = e instanceof Error ? e.message : 'unknown';
     return NextResponse.json(
-      { error: 'internal error', message: e?.message ?? 'unknown' },
+      { error: 'internal error', message },
       { status: 500 },
     );
   }
