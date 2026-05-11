@@ -179,10 +179,10 @@ cron は UTC `0 21,9 * * *` = JST 06:00 / 18:00。`docker compose exec app npm r
 追加マイグレーションを当てるときは:
 
 ```bash
-docker compose exec app npm run migrate
+npm run migrate
 ```
 
-`scripts/migrate.ts` が `schema_migrations` テーブルを見て未適用の `db/migrations/*.sql` だけを流す。
+`scripts/migrate.ts` が `schema_migrations` テーブルを見て未適用の `db/migrations/*.sql` だけを流す。マイグレーションはホストから実行する(コンテナイメージに `db/migrations/` を同梱していないため `docker compose exec app` では失敗する)。
 
 ---
 

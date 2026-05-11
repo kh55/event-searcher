@@ -12,6 +12,7 @@
 ## 必要なもの
 
 - Docker Desktop(Compose v2 同梱版)
+- PostgreSQL クライアント(`psql`)— オプション。`brew install libpq` でインストール、または `docker compose exec db psql -U app -d event_searcher` で代替可
 
 ## クイックスタート
 
