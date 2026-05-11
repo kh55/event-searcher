@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getServerClient } from '@/lib/supabase';
+import { getPool } from '@/lib/db';
 
 export const postSchema = z.object({ keyword: z.string().min(1).max(100) });
 
 export async function GET() {
-  const client = getServerClient();
-  const { data, error } = await client
-    .from('saved_keywords')
-    .select('*')
-    .order('created_at', { ascending: false });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ keywords: data });
+  const pool = getPool();
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, keyword, last_fetched_at, created_at FROM saved_keywords ORDER BY created_at DESC',
+    );
+    return NextResponse.json({ keywords: rows });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'unknown';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -19,12 +22,18 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'invalid input' }, { status: 400 });
   }
-  const client = getServerClient();
-  const { data, error } = await client
-    .from('saved_keywords')
-    .upsert({ keyword: parsed.data.keyword }, { onConflict: 'keyword' })
-    .select()
-    .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ keyword: data }, { status: 201 });
+  const pool = getPool();
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO saved_keywords (keyword)
+       VALUES ($1)
+       ON CONFLICT (keyword) DO UPDATE SET keyword = EXCLUDED.keyword
+       RETURNING id, keyword, last_fetched_at, created_at`,
+      [parsed.data.keyword],
+    );
+    return NextResponse.json({ keyword: rows[0] }, { status: 201 });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'unknown';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

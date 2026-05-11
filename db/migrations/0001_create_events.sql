@@ -44,3 +44,6 @@ CREATE INDEX idx_events_search ON events
   USING GIN (events_search_doc(title, description, performers));
 CREATE INDEX idx_events_starts_at ON events (starts_at);
 CREATE INDEX idx_events_area      ON events (area, starts_at);
+
+INSERT INTO schema_migrations(filename) VALUES ('0001_create_events.sql')
+ON CONFLICT (filename) DO NOTHING;

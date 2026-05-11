@@ -2,19 +2,17 @@
  * 検索オーケストレーション
  *
  * ハイブリッド取得戦略:
- *   1. batch    — saved_keywords に登録済みのキーワードは GitHub Actions cron で取込済みとみなす
- *   2. cache    — search_cache テーブルに有効なエントリがあれば DB 検索のみ行う (6h TTL)
- *   3. on_demand — キャッシュなし → 全アダプタを並列実行してイベントを upsert し、キャッシュ登録
+ *   1. db_only  — q が空のとき DB のみ参照(saved_keywords を OR フィルタとして使う)
+ *   2. batch    — saved_keywords に登録済みのキーワードは cron で取込済みとみなす
+ *   3. cache    — search_cache テーブルに有効なエントリがあれば DB 検索のみ行う (6h TTL)
+ *   4. on_demand — キャッシュなし → 全アダプタを逐次実行してイベントを upsert し、キャッシュ登録
  *
- * 既知の制限:
- *   - piaAdapter は dateFrom/dateTo を API に渡さないため範囲外イベントも upsert される。
- *     ただし runDbSearch の starts_at フィルタで最終的に絞り込まれる。
- *   - walkerplusAdapter は最初の1ページ (約10件) しか取得しない。
- *   - area 名に "/" が含まれる (例: '北海道/東北')。PostgREST の or() フィルタで
- *     ダブルクォートで囲むことで特殊文字を回避する。
+ * 既知の制限(spec の known_constraints 参照):
+ *   - performers @> ARRAY[X] は配列要素の完全一致なので、長文 bundleTitle 中の部分一致は引けない。
+ *     将来 events_search_doc(GIN tsvector)を使うクエリへの置き換えで根治する想定。
  */
 
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Pool } from 'pg';
 import { generateCacheKey, getCachedEventIds, setCachedEventIds } from '@/lib/cache';
 import { buildSearchQueryParams, type SearchInput, type QueryParams } from './query';
 import { piaAdapter } from '@/scrapers/pia';
@@ -26,9 +24,6 @@ import { RateLimiter } from '@/scrapers/http';
 import type { RawEvent, SourceAdapter } from '@/scrapers/types';
 
 const ADAPTERS: SourceAdapter[] = [piaAdapter, walkerplusAdapter, peatixAdapter];
-
-// 同一プロセス内のオンデマンド取得をスロットリングする。Vercel Functions は cold start ごとに
-// 別インスタンスになるが、温まったインスタンスへの連続リクエストには有効。
 const adapterLimiter = new RateLimiter(2000);
 
 export type FetchStrategy = 'db_only' | 'batch' | 'cache' | 'on_demand';
@@ -44,7 +39,7 @@ export interface SearchResult {
 }
 
 export async function searchEvents(
-  client: SupabaseClient,
+  pool: Pool,
   input: SearchInput,
 ): Promise<SearchResult> {
   const params = buildSearchQueryParams(input);
@@ -53,17 +48,14 @@ export async function searchEvents(
   let cacheKey: string | null = null;
   const sourcesFailed: string[] = [];
   const sourcesSucceeded: string[] = [];
-
-  // キーワード未入力時は saved_keywords をデフォルトの絞り込み語として使う。
-  // これがないと events テーブルのあらゆる行(別キーワードでの on_demand 取り込みも含む)が
-  // 出てしまい、保存しているキーワードと無関係なイベントが混入する。
   let queryKeywords: string[];
 
   if (!input.q) {
-    // キーワードなし検索は DB のみ参照(アダプタ取り込みやキャッシュ判定の意味がない)
     strategy = 'db_only';
-    const { data: saved } = await client.from('saved_keywords').select('keyword');
-    queryKeywords = (saved ?? []).map(s => s.keyword as string).filter(Boolean);
+    const { rows } = await pool.query<{ keyword: string }>(
+      'SELECT keyword FROM saved_keywords',
+    );
+    queryKeywords = rows.map(r => r.keyword).filter(Boolean);
   } else {
     queryKeywords = [input.q];
     cacheKey = generateCacheKey({
@@ -75,23 +67,19 @@ export async function searchEvents(
       onSaleOnly: params.onSaleOnly,
     });
 
-    // 1. saved_keywords に登録済みか確認(バッチ取得済みとみなす)
-    const { data: saved } = await client
-      .from('saved_keywords')
-      .select('id')
-      .eq('keyword', input.q)
-      .maybeSingle();
+    const { rowCount } = await pool.query(
+      'SELECT id FROM saved_keywords WHERE keyword = $1 LIMIT 1',
+      [input.q],
+    );
 
-    if (saved) {
+    if (rowCount && rowCount > 0) {
       strategy = 'batch';
     } else {
-      // 2. キャッシュ確認
-      const cached = await getCachedEventIds(client, cacheKey);
+      const cached = await getCachedEventIds(pool, cacheKey);
       if (cached) {
         strategy = 'cache';
       } else {
-        // 3. オンデマンド取得
-        const fetchResult = await runOnDemandFetch(client, input);
+        const fetchResult = await runOnDemandFetch(pool, input);
         sourcesFailed.push(...fetchResult.failed);
         sourcesSucceeded.push(...fetchResult.succeeded);
         strategy = 'on_demand';
@@ -99,17 +87,13 @@ export async function searchEvents(
     }
   }
 
-  const events = await runDbSearch(client, params, queryKeywords);
+  const events = await runDbSearch(pool, params, queryKeywords);
 
-  // on_demand 戦略のときだけキャッシュを更新する。runDbSearch を 1 回で済ませる目的で
-  // ここまで遅延させている。
   if (strategy === 'on_demand' && cacheKey) {
     const ids = events.map((r: any) => r.id as number);
-    await setCachedEventIds(client, cacheKey, ids);
+    await setCachedEventIds(pool, cacheKey, ids);
   }
 
-  // sources_succeeded/failed は on_demand 戦略でのみ意味を持つ。
-  // db_only/batch/cache 戦略時は空配列を返す(アダプタを実行していないため)
   return {
     events,
     meta: {
@@ -127,7 +111,7 @@ interface FetchSummary {
 }
 
 async function runOnDemandFetch(
-  client: SupabaseClient,
+  pool: Pool,
   input: SearchInput,
 ): Promise<FetchSummary> {
   const searchParams = {
@@ -143,8 +127,6 @@ async function runOnDemandFetch(
   const succeeded: string[] = [];
   const failed: string[] = [];
 
-  // 外部サイトへの負荷を抑えるため逐次 + 同一プロセスで共有のレートリミッタで間隔を確保。
-  // バッチ取得と同様に、実行ごとに scrape_runs に 1 行記録して観測可能にする。
   for (const adapter of ADAPTERS) {
     await adapterLimiter.wait();
     const startedAt = new Date();
@@ -153,7 +135,7 @@ async function runOnDemandFetch(
     let errMsg: string | null = null;
     try {
       const events = await adapter.search(searchParams);
-      await upsertEvents(client, adapter.source, events);
+      await upsertEvents(pool, adapter.source, events);
       count = events.length;
       succeeded.push(adapter.source);
     } catch (e: unknown) {
@@ -162,23 +144,27 @@ async function runOnDemandFetch(
       console.error(`[search] adapter ${adapter.source} failed:`, e);
       failed.push(adapter.source);
     }
-    await client.from('scrape_runs').insert({
-      source: adapter.source,
-      keyword: input.q ?? null,
-      trigger: 'on_demand',
-      events_found: count,
-      status,
-      error_message: errMsg,
-      started_at: startedAt.toISOString(),
-      finished_at: new Date().toISOString(),
-    });
+    await pool.query(
+      `INSERT INTO scrape_runs
+       (source, keyword, trigger, events_found, status, error_message, started_at, finished_at)
+       VALUES ($1, $2, 'on_demand', $3, $4, $5, $6, $7)`,
+      [
+        adapter.source,
+        input.q ?? null,
+        count,
+        status,
+        errMsg,
+        startedAt.toISOString(),
+        new Date().toISOString(),
+      ],
+    );
   }
 
   return { succeeded, failed };
 }
 
 async function upsertEvents(
-  client: SupabaseClient,
+  pool: Pool,
   source: string,
   raws: RawEvent[],
 ): Promise<void> {
@@ -186,95 +172,114 @@ async function upsertEvents(
 
   const now = new Date().toISOString();
 
-  const rows = raws.map(r => ({
-    source,
-    source_event_id: r.sourceEventId,
-    title: r.title,
-    description: r.description ?? null,
-    starts_at: r.startsAt.toISOString(),
-    ends_at: r.endsAt?.toISOString() ?? null,
-    venue_name: r.venueName ?? null,
-    prefecture: r.prefecture ?? null,
-    // RawEvent.isOnline を優先し、念のため isOnlineEvent でも再チェック
-    area: r.prefecture ? prefectureToArea(r.prefecture) : null,
-    is_online: r.isOnline || isOnlineEvent({
-      title: r.title,
-      description: r.description,
-      venueName: r.venueName,
-    }),
-    ticket_url: r.ticketUrl ?? null,
-    ticket_status: r.ticketStatus,
-    performers: r.performers,
-    tags: r.tags,
-    fetched_at: now,
-    // updated_at は DEFAULT NOW() で INSERT 時に自動設定されるが、
-    // UPSERT (ON CONFLICT UPDATE) 時はトリガーがないため手動で更新必須
-    updated_at: now,
-  }));
+  const valuesSql: string[] = [];
+  const params: unknown[] = [];
+  const COLS_PER_ROW = 16;
 
-  const { error } = await client
-    .from('events')
-    .upsert(rows, { onConflict: 'source,source_event_id' });
-  if (error) throw error;
+  raws.forEach((r, i) => {
+    const base = i * COLS_PER_ROW;
+    valuesSql.push(
+      `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, ` +
+      `$${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, ` +
+      `$${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16})`,
+    );
+    params.push(
+      source,
+      r.sourceEventId,
+      r.title,
+      r.description ?? null,
+      r.startsAt.toISOString(),
+      r.endsAt?.toISOString() ?? null,
+      r.venueName ?? null,
+      r.prefecture ?? null,
+      r.prefecture ? prefectureToArea(r.prefecture) : null,
+      r.isOnline || isOnlineEvent({
+        title: r.title,
+        description: r.description,
+        venueName: r.venueName,
+      }),
+      r.ticketUrl ?? null,
+      r.ticketStatus,
+      r.performers,
+      r.tags,
+      now,
+      now,
+    );
+  });
+
+  const sql = `
+    INSERT INTO events
+      (source, source_event_id, title, description, starts_at, ends_at,
+       venue_name, prefecture, area, is_online, ticket_url, ticket_status,
+       performers, tags, fetched_at, updated_at)
+    VALUES ${valuesSql.join(', ')}
+    ON CONFLICT (source, source_event_id) DO UPDATE SET
+      title = EXCLUDED.title,
+      description = EXCLUDED.description,
+      starts_at = EXCLUDED.starts_at,
+      ends_at = EXCLUDED.ends_at,
+      venue_name = EXCLUDED.venue_name,
+      prefecture = EXCLUDED.prefecture,
+      area = EXCLUDED.area,
+      is_online = EXCLUDED.is_online,
+      ticket_url = EXCLUDED.ticket_url,
+      ticket_status = EXCLUDED.ticket_status,
+      performers = EXCLUDED.performers,
+      tags = EXCLUDED.tags,
+      fetched_at = EXCLUDED.fetched_at,
+      updated_at = EXCLUDED.updated_at
+  `;
+  await pool.query(sql, params);
 }
 
 async function runDbSearch(
-  client: SupabaseClient,
+  pool: Pool,
   p: QueryParams,
   keywords: string[],
 ): Promise<any[]> {
-  let query = client
-    .from('events')
-    .select('*')
-    .gte('starts_at', p.fromIso)
-    .lte('starts_at', p.toIso)
-    .order('starts_at', { ascending: true })
-    .limit(200);
+  // sanitize: prepared statement なので filter injection は元から無いが、リグレッション最小化
+  // のため既存の置換ロジックは維持する。
+  const safeKeywords = keywords
+    .map(k => k.replace(/[,()"*\\{}]/g, ' ').trim())
+    .filter(k => k.length > 0);
 
-  // PostgREST の or() フィルタ DSL では `,` `(` `)` `"` `\` `*` が予約文字。
-  // performers の `cs.{...}` を併用するので `{` `}` も予約に加える。
-  // 入力を空白に置換してフィルタ注入を防ぐ。
-  //
-  // 各 keyword について title / description の部分一致 + performers TEXT[] の要素一致を
-  // OR で繋ぐ。pia adapter は bundleTitle (= アーティスト名 / 作品名) を performers に
-  // 入れるので、「花江夏樹」「ゆず」のような単独名キーワードを保存している場合、
-  // release title に名前が直接出てこないイベントもここで拾える。
-  // cs.{X} は配列要素の完全一致なので、bundleTitle 中に keyword を「含む」だけの
-  // ケース(例: bundleTitle = "鬼滅の刃 花江夏樹トーク")は引けない。
-  // 将来は events_search_doc(GIN tsvector)を使う RPC に置き換える前提の MVP 実装。
-  const orParts: string[] = [];
-  for (const kw of keywords) {
-    const safeQ = kw.replace(/[,()"*\\{}]/g, ' ').trim();
-    if (safeQ) {
-      orParts.push(`title.ilike.%${safeQ}%`);
-      orParts.push(`description.ilike.%${safeQ}%`);
-      orParts.push(`performers.cs.{"${safeQ}"}`);
-    }
-  }
-  if (orParts.length > 0) {
-    query = query.or(orParts.join(','));
+  const conditions: string[] = ['starts_at >= $1', 'starts_at <= $2'];
+  const params: unknown[] = [p.fromIso, p.toIso];
+
+  if (safeKeywords.length > 0) {
+    params.push(safeKeywords);
+    const idx = params.length;
+    conditions.push(`EXISTS (
+      SELECT 1 FROM unnest($${idx}::text[]) AS kw
+      WHERE title ILIKE '%' || kw || '%'
+         OR description ILIKE '%' || kw || '%'
+         OR performers @> ARRAY[kw]::text[]
+    )`);
   }
 
   if (p.areas) {
+    params.push(p.areas);
+    const idx = params.length;
     if (p.includeOnline) {
-      // area 名に "/" が含まれる (例: '北海道/東北', '中国/四国') ため
-      // PostgREST の in() フィルタ内でダブルクォートで囲んで特殊文字をエスケープする
-      const areasQuoted = p.areas.map(a => `"${a}"`).join(',');
-      query = query.or(`area.in.(${areasQuoted}),is_online.eq.true`);
+      conditions.push(`(area = ANY($${idx}::text[]) OR is_online = true)`);
     } else {
-      // areas 指定 + includeOnline=false: area一致 かつ is_online=false でないと
-      // 「東京都会場で配信併催」のようなオンラインフラグ付きイベントが混入する
-      query = query.in('area', p.areas).eq('is_online', false);
+      conditions.push(`area = ANY($${idx}::text[])`);
+      conditions.push(`is_online = false`);
     }
   } else if (!p.includeOnline) {
-    query = query.eq('is_online', false);
+    conditions.push(`is_online = false`);
   }
 
   if (p.onSaleOnly) {
-    query = query.in('ticket_status', ['on_sale', 'lottery']);
+    conditions.push(`ticket_status = ANY(ARRAY['on_sale','lottery']::text[])`);
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  const sql = `
+    SELECT * FROM events
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY starts_at ASC
+    LIMIT 200
+  `;
+  const { rows } = await pool.query(sql, params);
+  return rows;
 }

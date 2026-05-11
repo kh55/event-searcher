@@ -7,3 +7,6 @@ CREATE TABLE search_cache (
 );
 
 CREATE INDEX idx_search_cache_expires_at ON search_cache (expires_at);
+
+INSERT INTO schema_migrations(filename) VALUES ('0003_create_search_cache.sql')
+ON CONFLICT (filename) DO NOTHING;

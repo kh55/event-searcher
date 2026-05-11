@@ -9,32 +9,49 @@
 - 販売中のみ表示 / 配信を含めるかのトグル
 - 保存キーワードのバッチ継続取得
 
-## セットアップ
+## 必要なもの
 
-```bash
-cp .env.local.example .env.local  # 値を埋める
-npm install
-```
+- Docker Desktop(Compose v2 同梱版)
+- PostgreSQL クライアント(`psql`)— オプション。`brew install libpq` でインストール、または `docker compose exec db psql -U app -d event_searcher` で代替可
 
-### DB マイグレーション
+## クイックスタート
 
-Supabase ダッシュボードの SQL Editor に `db/migrations/*.sql` を `0001` → `0005` の順で流す。詳細は `db/README.md`。
+1. 環境変数を用意:
 
-Supabase プロジェクトを新規作成するときの推奨設定: **Data API: ON / Automatically expose new tables: OFF / Automatic RLS: ON**(0005 で `service_role` のみに GRANT する前提)。
+   ```bash
+   cp .env.local.example .env.local
+   # DATABASE_URL=postgres://app:app@localhost:5432/event_searcher が入っている
+   ```
 
-### 開発サーバ
+2. Docker Compose を起動:
 
-```bash
-npm run dev
-```
+   ```bash
+   docker compose up -d --build
+   ```
 
-### バッチ実行(ローカル)
+3. ブラウザで http://localhost:3000 を開く
 
-```bash
-npm run batch-fetch
-```
+4. キーワードを追加(/settings ページから、または curl):
 
-### テスト
+   ```bash
+   curl -X POST http://localhost:3000/api/saved-keywords \
+     -H "Content-Type: application/json" \
+     -d '{"keyword":"花江夏樹"}'
+   ```
+
+5. 即時バッチ実行(cron を待たない場合):
+
+   ```bash
+   docker compose exec app npm run batch-fetch
+   ```
+
+cron は `docker/ofelia.ini` で UTC `0 21,9 * * *`(JST 06:00 / 18:00)に `app` コンテナの `npm run batch-fetch` を起動する。
+
+## 開発時の注意
+
+ホストから直接 Node を動かす場合(`npm run dev` / `npm test` など)は、`.env.local` の `DATABASE_URL` は `localhost` を指している必要がある。コンテナ内部から DB に繋ぐ場合のホスト名は `db` で、これは `docker-compose.yml` の環境変数で上書きされる。
+
+## テスト
 
 ```bash
 npm test
@@ -46,10 +63,4 @@ npm test
 - 設計仕様: `docs/superpowers/specs/2026-05-04-event-searcher-design.md`
 - 実装計画: `docs/superpowers/plans/2026-05-04-event-searcher.md`
 
-## デプロイ
-
-- フロント / API: Vercel(`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` を Production env に登録)
-- バッチ: GitHub Actions(同じ 2 つを repo secrets に登録)
-- DB: Supabase クラウド(Free tier、Tokyo リージョン推奨)
-
-詳細手順は `docs/ARCHITECTURE.md` の「デプロイ」「オペレーション」「トラブルシューティング」を参照。
+詳細な運用手順(ログ確認・マイグレーション・トラブルシューティング)は `docs/ARCHITECTURE.md` の「オペレーション」「トラブルシューティング」を参照。

@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.gitignore
+.env
+.env.local
+.env.*.local
+.vercel
+.playwright-mcp
+.superpowers
+.claude
+.DS_Store
+coverage
+docs/superpowers
+tests
+*.tsbuildinfo
+README.md

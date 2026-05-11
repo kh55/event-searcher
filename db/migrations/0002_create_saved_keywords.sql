@@ -5,3 +5,6 @@ CREATE TABLE saved_keywords (
   last_fetched_at TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+INSERT INTO schema_migrations(filename) VALUES ('0002_create_saved_keywords.sql')
+ON CONFLICT (filename) DO NOTHING;
