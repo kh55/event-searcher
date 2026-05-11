@@ -13,7 +13,6 @@
     "migrate": "tsx scripts/migrate.ts"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.105.1",
     "cheerio": "^1.2.0",
     "next": "16.2.4",
     "pg": "^8.20.0",
