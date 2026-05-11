@@ -10,17 +10,17 @@
 
 ```
                           ┌─────────────────────┐
-                          │   GitHub Actions    │
-                          │  cron 21,9 * * *    │  (UTC = JST 06:00 / 18:00)
-                          │  scripts/batch-fetch│
+                          │  ofelia (cron)      │
+                          │  0 21,9 * * * UTC   │  (= JST 06:00 / 18:00)
+                          │  → app: batch-fetch │
                           └──────────┬──────────┘
                                      │ saved_keywords を全件 fetch して
                                      │ 各 adapter で外部スクレイプ → upsert
                                      ▼
-┌──────────┐   POST  ┌─────────────────────────┐  CRUD  ┌──────────────┐
-│ Browser  │ ──────► │ Vercel (Next.js 16)     │ ─────► │  Supabase    │
+┌──────────┐   POST  ┌─────────────────────────┐  SQL   ┌──────────────┐
+│ Browser  │ ──────► │ app (Next.js 16)        │ ─────► │  db          │
 │ (User)   │         │  app/page.tsx           │        │  PostgreSQL  │
-│          │ ◄────── │  app/settings           │        │  + PostgREST │
+│ localhost│ ◄────── │  app/settings           │        │  (pg image)  │
 └──────────┘   JSON  │  app/api/search         │        │              │
                      │  app/api/saved-keywords │        │  events      │
                      └────────────┬────────────┘        │  saved_kwds  │
@@ -34,15 +34,15 @@
                           └─────────────────┘
 ```
 
-3 つのインフラを束ねる構成:
+docker-compose 上の 3 サービス構成:
 
-| 役割 | サービス | 責務 |
+| サービス | イメージ | 責務 |
 |---|---|---|
-| **フロント / API** | Vercel(Next.js 16 Functions) | 検索 UI、`/api/search`、`/api/saved-keywords` の REST、on-demand スクレイプの起点 |
-| **データベース** | Supabase(PostgreSQL + PostgREST 自動 API) | events / saved_keywords / search_cache / scrape_runs の永続化 |
-| **バッチ** | GitHub Actions(cron + workflow_dispatch) | saved_keywords を起点に外部スクレイプ → upsert を 1 日 2 回回す |
+| **app** | local build(`Dockerfile`、Next.js 16) | 検索 UI、`/api/search`、`/api/saved-keywords` の REST、on-demand スクレイプの起点、`npm run batch-fetch` の実行体 |
+| **db** | `postgres:16` | events / saved_keywords / search_cache / scrape_runs の永続化(volume `pgdata`)、初回起動時に `db/migrations/*.sql` を `/docker-entrypoint-initdb.d` 経由で適用 |
+| **ofelia** | `mcuadros/ofelia` | `docker/ofelia.ini` の cron 設定に従って `app` コンテナで `npm run batch-fetch` を定期起動 |
 
-すべての DB アクセスは **Supabase の `service_role` キー** で行い、ブラウザから DB を直接叩く経路は持たない。
+`app` は `127.0.0.1:3000`(loopback only)に bind し、`db` は docker network 内部からのみアクセス可能。外部公開ポートは持たない。
 
 ---
 
@@ -66,7 +66,7 @@ event-searcher/
 │   ├── date.ts                JST 基準の「今週末/来週末/今月」レンジ
 │   ├── online-detection.ts    タイトル/説明から配信判定
 │   ├── ticket-status.ts       on_sale / sold_out / lottery / unknown 正規化
-│   └── supabase.ts            getServerClient() (Service Role キャッシュ)
+│   └── db.ts                  pg Pool / クエリヘルパ
 ├── scrapers/                  外部サイトアダプタ
 │   ├── types.ts               SourceAdapter / RawEvent / SearchParams
 │   ├── http.ts                fetchHtml / fetchJson / RateLimiter
@@ -75,16 +75,19 @@ event-searcher/
 │   ├── peatix.ts              peatixAdapter (peatix-api.com / JSON)
 │   └── __fixtures__/          各 adapter の HTML / JSON フィクスチャ
 ├── scripts/
-│   └── batch-fetch.ts         cron + ローカル実行のエントリ
+│   ├── batch-fetch.ts         cron + ローカル実行のエントリ
+│   └── migrate.ts             schema_migrations を読んで未適用 SQL を流すツール
 ├── db/
 │   ├── README.md              マイグレーション運用メモ
-│   └── migrations/            0001 → 0005 (順番実行)
+│   └── migrations/            0000 → 0004 (順番実行)
 ├── tests/                     vitest (lib / scrapers / api 各層)
-└── .github/workflows/
-    └── batch-fetch.yml        cron + workflow_dispatch
+├── Dockerfile                 app サービスのビルド定義
+├── docker-compose.yml         db / app / ofelia の 3 サービス定義
+└── docker/
+    └── ofelia.ini             cron スケジュール(UTC 0 21,9 * * *)
 ```
 
-`app/api/*` は Next.js のサーバ関数として Vercel にデプロイされる。`scripts/batch-fetch.ts` は tsx で Node スクリプトとして GitHub Actions runner 上で動く。両者で `lib/` `scrapers/` を共有する。
+`app/api/*` は Next.js のサーバ関数として `app` コンテナ内で動く。`scripts/batch-fetch.ts` は tsx で Node スクリプトとして同じ `app` コンテナ内で ofelia から `exec` 起動される。両者で `lib/` `scrapers/` を共有する。
 
 ---
 
@@ -110,7 +113,7 @@ q あり
 
 レスポンスの `meta.fetched_strategy` で実際の戦略が、`sources_succeeded` / `sources_failed` で adapter 結果が観測できる。
 
-### 2. バッチ実行(GitHub Actions cron)
+### 2. バッチ実行(ofelia cron)
 
 `scripts/batch-fetch.ts`(`npm run batch-fetch`):
 
@@ -126,7 +129,7 @@ q あり
 3. 古い行を削除 (events.starts_at < now - 24h)
 ```
 
-cron は UTC `0 21,9 * * *` = JST 06:00 / 18:00。`workflow_dispatch:` で手動実行も可。
+cron は UTC `0 21,9 * * *` = JST 06:00 / 18:00。`docker compose exec app npm run batch-fetch` で手動実行も可。
 
 ### 3. 保存キーワード CRUD
 
@@ -144,8 +147,9 @@ cron は UTC `0 21,9 * * *` = JST 06:00 / 18:00。`workflow_dispatch:` で手動
 | `saved_keywords` | 保存キーワード(バッチ継続取得対象) | `keyword UNIQUE`, `last_fetched_at` |
 | `search_cache` | on-demand 結果のキャッシュ | `cache_key PK` (sha256), `event_ids BIGINT[]`, `expires_at`(6h) |
 | `scrape_runs` | スクレイプ実行ログ | `source`, `keyword`, `trigger ('cron'|'on_demand')`, `events_found`, `status`, `error_message` |
+| `schema_migrations` | 適用済みマイグレーションのトラッキング | `filename PK`, `applied_at` |
 
-マイグレーションは `db/migrations/0001_create_events.sql` 〜 `0005_grant_service_role.sql` の **順番実行**。0005 は `service_role` ロールに対する GRANT(Supabase の "Automatically expose new tables: OFF" を補完する)。
+マイグレーションは `db/migrations/0000_create_schema_migrations.sql` 〜 `0004_create_scrape_runs.sql` の **順番実行**。初回は `db` コンテナの `/docker-entrypoint-initdb.d` から自動実行され、以後の追加分は `npm run migrate`(`scripts/migrate.ts`)で `schema_migrations` を見て未適用分のみ流す。
 
 詳細は `db/README.md` 参照。
 
@@ -155,36 +159,30 @@ cron は UTC `0 21,9 * * *` = JST 06:00 / 18:00。`workflow_dispatch:` で手動
 
 | 名前 | 用途 | 設定先 | sensitive |
 |---|---|---|---|
-| `SUPABASE_URL` | Supabase REST API エンドポイント `https://xxxx.supabase.co` | ローカル: `.env.local` / Vercel: Production env / GitHub Actions: repo secrets | No(URL は秘密ではない) |
-| `SUPABASE_SERVICE_ROLE_KEY` | RLS バイパス用 Service Role JWT(`eyJhbGc...`) | 同上 | **Yes**(管理者権限のため漏えい時は即 rotate) |
+| `DATABASE_URL` | PostgreSQL 接続文字列 `postgres://app:app@<host>:5432/event_searcher` | ローカル CLI: `.env.local`(host=`localhost`)/ コンテナ内: `docker-compose.yml` の env で host=`db` に上書き | No(loopback 限定運用のため) |
 
-`anon` キーや `NEXT_PUBLIC_*` は使用しない(ブラウザから DB を直接叩かない設計のため)。
+ホスト側から `npm run dev` や `npm run migrate` を実行するときは `.env.local` の `DATABASE_URL` が `localhost:5432` を指していることが前提。`app` コンテナ内では `docker-compose.yml` の `environment:` が `db:5432` へ書き換える。
 
 ---
 
 ## デプロイ
 
-### Vercel(フロント / API)
+### Docker Compose のセットアップ
 
-- フレームワークプリセット: **Next.js**(自動検出)
-- Production ブランチ: `main`
-- main への push で自動デプロイ
-- Deployment Protection: **Vercel Authentication 有効**(個人利用 first のため)
-- 環境変数は Production スコープに `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` を登録
+1. `cp .env.local.example .env.local`(`DATABASE_URL` の雛形が入っている)
+2. `docker compose up -d --build`
+   - `db` サービスが初回起動時に `pgdata` ボリュームを新規作成し、`db/migrations/*.sql` をファイル名昇順に自動適用
+   - `app` サービスが `Dockerfile` の multi-stage build を実行し、`npm run build` 済みの Next.js をプロダクションモードで起動
+   - `ofelia` サービスが `docker/ofelia.ini` を読み込み、cron で `app` コンテナの `npm run batch-fetch` を発火するよう待機
+3. `http://localhost:3000` にアクセス(loopback only)
 
-### GitHub Actions(バッチ)
+追加マイグレーションを当てるときは:
 
-- ワークフロー: `.github/workflows/batch-fetch.yml`
-- スケジュール: `0 21,9 * * *`(UTC)
-- 手動実行: Actions タブ → `batch-fetch` → `Run workflow`
-- Repo secrets に `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` を登録
+```bash
+docker compose exec app npm run migrate
+```
 
-### Supabase(DB)
-
-- リージョン: Northeast Asia (Tokyo)
-- プラン: Free tier
-- 設定: Data API ON / Automatically expose new tables OFF / Automatic RLS ON
-- アクセスは `service_role` のみ(`anon` / `authenticated` 未 GRANT)
+`scripts/migrate.ts` が `schema_migrations` テーブルを見て未適用の `db/migrations/*.sql` だけを流す。
 
 ---
 
@@ -193,7 +191,7 @@ cron は UTC `0 21,9 * * *` = JST 06:00 / 18:00。`workflow_dispatch:` で手動
 ### 新しいキーワードを追加して定期取得対象にする
 
 ```bash
-curl -X POST https://event-searcher.vercel.app/api/saved-keywords \
+curl -X POST http://localhost:3000/api/saved-keywords \
   -H "Content-Type: application/json" \
   -d '{"keyword":"花江夏樹"}'
 ```
@@ -203,48 +201,60 @@ curl -X POST https://event-searcher.vercel.app/api/saved-keywords \
 ### 即時に取り込みたい(cron を待たずに)
 
 ```bash
-gh workflow run batch-fetch.yml --ref main
+docker compose exec app npm run batch-fetch
 ```
 
 ### スクレイプ実行履歴を確認
 
-Supabase ダッシュボード → Table Editor → `scrape_runs` を `started_at DESC` で開く。`trigger='cron'` がバッチ、`'on_demand'` がユーザー検索起点。
-
-### Vercel 関数ログを見る(障害時)
-
 ```bash
-vercel logs --no-branch --environment=production --status-code=500 --since=30m --expand
+psql postgres://app:app@localhost:5432/event_searcher \
+  -c "SELECT started_at, source, keyword, trigger, events_found, status FROM scrape_runs ORDER BY started_at DESC LIMIT 20;"
 ```
 
-過去 30 分の 500 系をスタックトレース込みで表示。
+`trigger='cron'` がバッチ、`'on_demand'` がユーザー検索起点。
+
+### app の関数ログを見る(障害時)
+
+```bash
+docker compose logs -f app
+```
+
+直近に絞るなら `--since=30m`、エラーだけ拾うなら `| grep -i error`。
 
 ### 環境変数を更新したあとの反映
 
-Vercel 側で env を追加 / 変更しただけでは既存デプロイには伝播しない。再デプロイが必要:
+`docker-compose.yml` を編集した場合は:
 
 ```bash
-vercel --prod    # CLI で即時再デプロイ
-# または: 空コミット push で自動デプロイ起動
+docker compose up -d --build
 ```
+
+で再ビルド + 再起動。`.env.local` を編集しただけで効くのはホスト側 CLI からの実行のみで、コンテナには伝播しない。
 
 ### 古いキャッシュを強制無効化したい
 
 `search_cache` テーブルを TRUNCATE するか、対象行を DELETE。次回検索で on-demand 取得し直しになる。
 
+```bash
+psql postgres://app:app@localhost:5432/event_searcher -c "TRUNCATE search_cache;"
+```
+
 ---
 
 ## セキュリティモデル
 
-- **DB アクセス**: 全経路 `service_role` キー経由。RLS は有効化されているが、`service_role` がバイパスする
-- **`anon` ロール**: 何も GRANT されていない。仮にキーが漏れても全テーブル read/write 不可
-- **API 認証**: 現状なし。Vercel Deployment Protection で「ログイン中の自分」だけがアクセスできる構成
-- **検索クエリのサニタイズ**: `lib/search/index.ts` で PostgREST `or()` フィルタの予約文字 (`,()"*\`) を入力から除去(filter injection 防止)
-- **シークレットのログ出力**: なし。Vercel/Actions/Supabase のログにキーが出力される箇所は無い
+- **DB アクセス**: `app` コンテナから docker network 内部の `db:5432` に対して `app` ロール(superuser of `event_searcher`)で接続。docker network 外からは到達不可
+- **公開範囲**: `app` の `3000/tcp` は `127.0.0.1` への loopback only bind。`db` はホストにポート公開しない設定(必要なら `docker compose exec db psql` か明示的なポートフォワード)
+- **API 認証**: 現状なし。loopback only であることで「自分のマシンの自分」だけがアクセスできる構成
+- **検索クエリのサニタイズ**: `lib/search/index.ts` で入力から SQL 注入相当の予約文字を除去(filter injection 防止)
+- **シークレットのログ出力**: なし。`DATABASE_URL` 自体は秘密として扱う必要があるが、loopback のみで運用するためログ閲覧は手元限定
 
 将来公開する場合は最低限:
-- `/api/saved-keywords` への認証(Supabase Auth で個人テナント化)
-- レート制限(IP ベースまたは Supabase Auth ベース)
-- Deployment Protection を解除してパスワード保護に切り替え or 撤廃
+
+- `/api/saved-keywords` への認証(セッション or 簡易 Basic 認証)
+- レート制限(IP ベース)
+- `app` の bind を `0.0.0.0` に変えるならその前にリバプロ + TLS + 認証を必ず置く
+- `db` ロールをアプリ用に分離(現状の `app` superuser 運用は loopback 前提)
 
 ---
 
@@ -260,7 +270,7 @@ vercel --prod    # CLI で即時再デプロイ
 - **`array_to_string`** が `STABLE` のため、events の GIN index は `events_search_doc()` IMMUTABLE wrapper を介して張る
 - **events 古データ削除**: `starts_at < now - 24h` で削除。長期イベント(展示など)で `starts_at` 過去 + `ends_at` 未来は消える
 - **`updated_at` 自動更新トリガー未設定**: アプリ側で明示的に `updated_at: now` を渡してカバー
-- **on-demand 経路のレートリミット**: モジュールスコープなので Vercel の cold start 毎に状態リセット。同一インスタンスへの連続リクエストには有効、別インスタンス間では無効
+- **on-demand 経路のレートリミット**: モジュールスコープなので `app` コンテナ再起動毎に状態リセット。同一プロセスへの連続リクエストには有効、再起動を挟むと無効
 
 ---
 
@@ -268,12 +278,13 @@ vercel --prod    # CLI で即時再デプロイ
 
 | 症状 | 確認すること | よくある原因 |
 |---|---|---|
-| `/api/search` が 500 | `vercel logs --status-code=500 --expand` | 環境変数が Vercel に未登録 / 別スコープ / 再デプロイ未実施 |
-| DB クエリが `permission denied` | Supabase ダッシュボードでテーブルの GRANT 状況 | `service_role` への GRANT 漏れ(`db/migrations/0005_grant_service_role.sql` を再実行) |
+| サービスの状態確認 | `docker compose ps` | `app` / `db` / `ofelia` が `Up` になっているか |
+| `/api/search` が 500 | `docker compose logs -f app` | `DATABASE_URL` が未設定 / DB が起動しきっていない |
+| DB が起動しない | `docker compose logs db` | volume の権限・破損、初回マイグレーション SQL の構文エラー |
 | マイグレーションが `42P17 IMMUTABLE` | 0001 に IMMUTABLE wrapper 関数が含まれているか | 旧版 SQL を貼った可能性。`db/migrations/0001_create_events.sql` を最新で取り直す |
-| GitHub Actions cron が `SUPABASE_URL is not set` | repo secrets に登録されているか | Settings → Secrets and variables → Actions に追加 |
-| ローカル `npm run batch-fetch` が `SUPABASE_URL is not set` | `.env.local` が存在するか / 正しいキーで埋まっているか | `.env.local.example` をコピーして値を埋める |
+| ローカル `npm run batch-fetch`(ホスト)が `DATABASE_URL is not set` | `.env.local` が存在するか / 正しい値で埋まっているか | `.env.local.example` をコピーして値を埋める |
 | 検索結果が常に 0 件 | `scrape_runs` で `events_found` を見る / `events` テーブルに行があるか | adapter 側でキーワード一致しない / 期間外 / クライアント側フィルタで除外 |
+| データを完全リセットしたい | `docker compose down -v` で volume ごと破棄 | `up -d --build` で再度マイグレーションから流し直し |
 
 ---
 
