@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/lib/supabase';
+import { getPool } from '@/lib/db';
 
 export async function DELETE(
   _req: NextRequest,
@@ -10,8 +10,12 @@ export async function DELETE(
   if (!Number.isFinite(numId)) {
     return NextResponse.json({ error: 'invalid id' }, { status: 400 });
   }
-  const client = getServerClient();
-  const { error } = await client.from('saved_keywords').delete().eq('id', numId);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+  const pool = getPool();
+  try {
+    await pool.query('DELETE FROM saved_keywords WHERE id = $1', [numId]);
+    return NextResponse.json({ ok: true });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'unknown';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
