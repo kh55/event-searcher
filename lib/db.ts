@@ -1,4 +1,8 @@
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
+
+// Coerce BIGINT (oid 20 / INT8) to number to maintain API contract with prior Supabase behavior.
+// For our row counts (event IDs < Number.MAX_SAFE_INTEGER), this is safe.
+types.setTypeParser(types.builtins.INT8, (val: string) => parseInt(val, 10));
 
 let cached: Pool | null = null;
 
